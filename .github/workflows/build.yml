@@ -128,29 +128,38 @@ jobs:
           NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
-          VERSION="$(date +%Y.%m.%d)-${{ steps.upstream.outputs.short }}"
+          # Follow upstream artifact naming: upbge-0.52-alpha-linux-x86_64-2026-06-07
+          VER_H=upbge/source/blender/blenkernel/BKE_blender_version.h
+          ver() { grep -m1 "#define $1 " "$VER_H" | awk '{print $3}'; }
+          UPBGE_VER="0.$(ver UPBGE_VERSION)"
+          UPBGE_CYCLE=$(ver UPBGE_VERSION_CYCLE)
+          B=$(ver BLENDER_VERSION)
+          BLENDER_VER="$((B / 100)).$((B % 100)).$(ver BLENDER_VERSION_PATCH)"
+          DATE=$(date +%Y-%m-%d)
+          VERSION="${UPBGE_VER}-${UPBGE_CYCLE}-macos-arm64-${DATE}"
           ARGS=(--version "$VERSION")
           if [ -z "${SKIP_SIGN:-}" ] && [ -n "$NOTARY_PASSWORD" ] && [ "${{ github.event.inputs.notarize }}" != "false" ]; then
             ARGS+=(--notarize)
           fi
           UPBGE_ROOT="$GITHUB_WORKSPACE" ./scripts/package_dmg.sh --plain-dmg "${ARGS[@]}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          {
+            echo "VERSION=$VERSION"
+            echo "UPBGE_VER=$UPBGE_VER"
+            echo "UPBGE_CYCLE=$UPBGE_CYCLE"
+            echo "BLENDER_VER=$BLENDER_VER"
+            echo "BUILD_DATE=$DATE"
+          } >> "$GITHUB_ENV"
 
       - name: Create release
         if: steps.skip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Mirror UPBGE's own nomenclature (e.g. "UPBGE 0.53.0 Alpha", Blender base "5.3.0")
-          VER_H=upbge/source/blender/blenkernel/BKE_blender_version.h
-          ver()        { grep -m1 "#define $1 " "$VER_H" | awk '{print $3}'; }
-          UPBGE_VER="0.$(ver UPBGE_VERSION).$(ver UPBGE_VERSION_PATCH)"
-          UPBGE_CYCLE=$(ver UPBGE_VERSION_CYCLE | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
-          B=$(ver BLENDER_VERSION)
-          BLENDER_VER="$((B / 100)).$((B % 100)).$(ver BLENDER_VERSION_PATCH)"
-          TAG="v${VERSION}"
-          NOTES="Unofficial macOS Apple Silicon (arm64) build of [UPBGE](https://github.com/UPBGE/upbge) **$UPBGE_VER $UPBGE_CYCLE** at commit [\`${{ steps.upstream.outputs.short }}\`](https://github.com/UPBGE/upbge/commit/${{ steps.upstream.outputs.sha }}), embedding Blender $BLENDER_VER. Official releases and version naming: [UPBGE releases](https://github.com/UPBGE/upbge/releases)."
+          # Tag keeps the upstream short SHA — the weekly skip-if-unchanged check greps for it.
+          TAG="v${UPBGE_VER}-${UPBGE_CYCLE}-${BUILD_DATE}-${{ steps.upstream.outputs.short }}"
+          CYCLE_TITLE=$(echo "$UPBGE_CYCLE" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+          NOTES="Unofficial macOS Apple Silicon (arm64) build of [UPBGE](https://github.com/UPBGE/upbge) **$UPBGE_VER $CYCLE_TITLE** at commit [\`${{ steps.upstream.outputs.short }}\`](https://github.com/UPBGE/upbge/commit/${{ steps.upstream.outputs.sha }}), embedding Blender $BLENDER_VER. Official releases and version naming: [UPBGE releases](https://github.com/UPBGE/upbge/releases)."
           [ -n "${PATCHES_SKIPPED:-}" ] && NOTES="$NOTES\n\n⚠️ Patches skipped (no longer apply):${PATCHES_SKIPPED}"
-          gh release create "$TAG" dist/UPBGE-*.dmg \
-            --title "UPBGE $UPBGE_VER $UPBGE_CYCLE — macOS arm64 ($VERSION)" \
+          gh release create "$TAG" dist/upbge-*.dmg \
+            --title "UPBGE $UPBGE_VER $CYCLE_TITLE — macOS arm64 ($BUILD_DATE)" \
             --notes "$(printf "$NOTES")"

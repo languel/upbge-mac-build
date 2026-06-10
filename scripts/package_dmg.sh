@@ -109,7 +109,7 @@ echo "[ok] Team ID: $TEAM_ID"
 # -------- paths --------
 DIST="$ROOT/dist"
 STAGE="$DIST/staging"
-DMG="$DIST/UPBGE-${VERSION}.dmg"
+DMG="$DIST/upbge-${VERSION}.dmg"
 ENTITLEMENTS="$ROOT/upbge/release/darwin/entitlements.plist"
 THUMB_ENTITLEMENTS="$ROOT/upbge/release/darwin/thumbnailer_entitlements.plist"
 BACKGROUND="$ROOT/upbge/release/darwin/background_extended.tif"

@@ -30,7 +30,7 @@ The launcher backgrounds `build.sh` and writes status to `build.status` and `bui
 │       └── Blenderplayer.app
 ├── dist/                           # signed/notarized output of package_dmg.sh
 │   ├── staging/                    #   intermediate signed copies (reused by --dmg-only)
-│   └── UPBGE-<version>.dmg         #   shippable
+│   └── upbge-<version>.dmg         #   shippable
 ├── build.sh                        # idempotent build script
 ├── build_launcher.command          # Finder-double-clickable wrapper that detaches build.sh
 ├── run_blender.command             # double-clickable wrapper that runs Blender with stderr captured
@@ -301,7 +301,7 @@ NOTARY_PASSWORD=xxxx-xxxx-xxxx-xxxx ./package_dmg.sh --notarize       # full pip
 ./package_dmg.sh --plain-dmg                    # skip create-dmg's AppleScript layout step entirely
 ```
 
-Output: `dist/UPBGE-<version>.dmg`
+Output: `dist/upbge-<version>.dmg`
 
 ### Pipeline
 
@@ -381,7 +381,7 @@ Icon coordinates (in `package_dmg.sh`, points from top-left):
 ### Verifying the result
 
 ```
-spctl -a -t open --context context:primary-signature -v dist/UPBGE-0.5.2-arm64.dmg
+spctl -a -t open --context context:primary-signature -v dist/upbge-<version>.dmg
 codesign -dvv dist/staging/Blender.app
 xcrun stapler validate dist/staging/Blender.app   # only meaningful if --notarize was used
 ```
@@ -399,7 +399,7 @@ Notarization applies to the bytes of the DMG, so any change to background, icon 
    - Icon coordinates in `package_dmg.sh` — `--icon "Blender.app" X Y`, `--app-drop-link X Y`, `--icon "Blenderplayer.app" X Y`.
    - Window size in `package_dmg.sh` — `--window-size W H`. (If you change this, also rerun `extend_dmg_background.py` so the bg matches at retina @2x.)
 2. Run `./package_dmg.sh --dmg-only` (no `--notarize`).
-3. `open dist/UPBGE-0.5.2-arm64.dmg` and inspect.
+3. `open dist/upbge-<version>.dmg` and inspect.
 4. Repeat until happy.
 
 The DMG is signed but unnotarized during iteration — fine for local mounting because macOS only enforces notarization on quarantined files (i.e., things downloaded from a browser).
