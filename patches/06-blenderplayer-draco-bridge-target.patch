@@ -1,0 +1,20 @@
+diff --git a/source/blenderplayer/CMakeLists.txt b/source/blenderplayer/CMakeLists.txt
+index db25c676d40..3883f90e7de 100644
+--- a/source/blenderplayer/CMakeLists.txt
++++ b/source/blenderplayer/CMakeLists.txt
+@@ -289,7 +289,14 @@ if(APPLE)
+ 
+     if(WITH_DRACO)
+       install(
+-        PROGRAMS $<TARGET_FILE:extern_draco>
++        PROGRAMS $<TARGET_FILE:bf_intern_draco_bridge>
++        DESTINATION ${PLAYER_TARGETDIR_VER}/scripts/addons_core/io_scene_gltf2
++      )
++    endif()
++
++    if(WITH_MESHOPTIMIZER)
++      install(
++        PROGRAMS $<TARGET_FILE:bf_intern_meshopt_bridge>
+         DESTINATION ${PLAYER_TARGETDIR_VER}/scripts/addons_core/io_scene_gltf2
+       )
+     endif()
