@@ -93,7 +93,11 @@ jobs:
         if: steps.skip.outputs.skip != 'true'
         run: |
           brew install ninja ccache create-dmg
-          UPBGE_ROOT="$GITHUB_WORKSPACE" ./scripts/build.sh
+          if ! UPBGE_ROOT="$GITHUB_WORKSPACE" ./scripts/build.sh; then
+            echo "=== build.status ==="; cat build.status || true
+            echo "=== last 100 lines of build.log ==="; tail -100 build.log || true
+            exit 1
+          fi
           cat build.status
 
       - name: Import signing certificate

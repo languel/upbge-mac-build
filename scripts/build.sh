@@ -100,7 +100,13 @@ if [[ -d "$SRC/lib/macos_arm64" ]] && [[ -n "$(ls -A "$SRC/lib/macos_arm64" 2>/d
     echo "lib/macos_arm64 already populated ($lib_size) — skipping make update" >> "$LOG"
 else
     echo "Running make update — fetching ~2-5 GB of precompiled libs..." >> "$LOG"
-    make update >> "$LOG" 2>&1
+    if [[ -n "${CI:-}" ]]; then
+        # CI checks out a pinned SHA (detached HEAD); plain `make update` would
+        # try to pull the source branch and fail. Fetch only the libraries.
+        python3 ./build_files/utils/make_update.py --no-blender --architecture arm64 >> "$LOG" 2>&1
+    else
+        make update >> "$LOG" 2>&1
+    fi
     update_rc=$?
     if [[ $update_rc -ne 0 ]]; then
         write_status "FAILED" "make update failed with rc=$update_rc"
