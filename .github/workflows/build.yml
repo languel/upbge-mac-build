@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 350
     steps:
       - name: Checkout build repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve upstream commit
         id: upstream
@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache precompiled libs
         if: steps.skip.outputs.skip != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: upbge/lib/macos_arm64
           key: upbge-libs-arm64-${{ hashFiles('upbge/build_files/config/**') }}
@@ -83,7 +83,7 @@ jobs:
 
       - name: Cache ccache
         if: steps.skip.outputs.skip != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/Library/Caches/ccache
           key: ccache-arm64-${{ steps.upstream.outputs.short }}
