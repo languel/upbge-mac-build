@@ -1,0 +1,24 @@
+diff --git a/source/gameengine/Rasterizer/RAS_OpenGLRasterizer/CMakeLists.txt b/source/gameengine/Rasterizer/RAS_OpenGLRasterizer/CMakeLists.txt
+index e2a56c8daab..abf7ccb29d7 100644
+--- a/source/gameengine/Rasterizer/RAS_OpenGLRasterizer/CMakeLists.txt
++++ b/source/gameengine/Rasterizer/RAS_OpenGLRasterizer/CMakeLists.txt
+@@ -52,6 +52,7 @@ set(SRC
+ 
+ set(LIB
+   PRIVATE bf::blenfont
++  PRIVATE bf::dependencies::epoxy
+   PRIVATE bf::blenkernel
+   PRIVATE bf::blenlib
+   PRIVATE bf::blentranslation
+diff --git a/source/gameengine/VideoTexture/CMakeLists.txt b/source/gameengine/VideoTexture/CMakeLists.txt
+index 72c6e6b7d52..3b2d3e2884a 100644
+--- a/source/gameengine/VideoTexture/CMakeLists.txt
++++ b/source/gameengine/VideoTexture/CMakeLists.txt
+@@ -71,6 +71,7 @@ set(LIB
+   PRIVATE bf::blenkernel
+   PRIVATE bf::blenlib
+   PRIVATE bf::blentranslation
++  PRIVATE bf::dependencies::epoxy
+   PRIVATE bf::bmesh
+   PRIVATE bf::depsgraph
+   PRIVATE bf::dna
