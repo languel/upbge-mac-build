@@ -1,0 +1,146 @@
+name: Build UPBGE macOS arm64
+
+on:
+  workflow_dispatch:
+    inputs:
+      upbge_ref:
+        description: "UPBGE ref to build (branch, tag, or SHA)"
+        default: "master"
+      notarize:
+        description: "Sign + notarize (requires secrets)"
+        type: boolean
+        default: true
+  schedule:
+    # Weekly, Monday 06:00 UTC. Skips automatically if upstream is unchanged.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15  # Apple Silicon
+    timeout-minutes: 350
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream commit
+        id: upstream
+        run: |
+          REF="${{ github.event.inputs.upbge_ref || 'master' }}"
+          SHA=$(git ls-remote https://github.com/UPBGE/upbge "$REF" | cut -f1)
+          [ -n "$SHA" ] || SHA="$REF"   # assume a raw SHA was passed
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          echo "Building UPBGE @ $SHA"
+
+      - name: Skip if already released (scheduled runs only)
+        id: skip
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if gh release list --limit 30 --json tagName -q '.[].tagName' | grep -q "${{ steps.upstream.outputs.short }}"; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Upstream unchanged since last release — skipping."
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Clone UPBGE
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          git clone https://github.com/UPBGE/upbge upbge
+          cd upbge
+          git checkout ${{ steps.upstream.outputs.sha }}
+
+      - name: Apply local patches
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          cd upbge
+          FAILED=""
+          for p in ../patches/*.patch; do
+            if git apply --check "$p" 2>/dev/null; then
+              git apply "$p" && echo "applied: $p"
+            else
+              echo "::warning::patch no longer applies (may be fixed upstream): $p"
+              FAILED="$FAILED $p"
+            fi
+          done
+          echo "PATCHES_SKIPPED=$FAILED" >> "$GITHUB_ENV"
+
+      - name: Cache precompiled libs
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: upbge/lib/macos_arm64
+          key: upbge-libs-arm64-${{ hashFiles('upbge/build_files/config/**') }}
+          restore-keys: upbge-libs-arm64-
+
+      - name: Cache ccache
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-arm64-${{ steps.upstream.outputs.short }}
+          restore-keys: ccache-arm64-
+
+      - name: Build
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          brew install ninja ccache create-dmg
+          UPBGE_ROOT="$GITHUB_WORKSPACE" ./scripts/build.sh
+          cat build.status
+
+      - name: Import signing certificate
+        if: steps.skip.outputs.skip != 'true' && (github.event.inputs.notarize != 'false')
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "::warning::No signing cert configured — producing unsigned build."
+            echo "SKIP_SIGN=1" >> "$GITHUB_ENV"; exit 0
+          fi
+          KEYCHAIN=build.keychain
+          KEYCHAIN_PASS=$(openssl rand -hex 16)
+          security create-keychain -p "$KEYCHAIN_PASS" $KEYCHAIN
+          security default-keychain -s $KEYCHAIN
+          security unlock-keychain -p "$KEYCHAIN_PASS" $KEYCHAIN
+          security set-keychain-settings -lut 21600 $KEYCHAIN
+          echo "$MACOS_CERT_P12" | base64 -d > cert.p12
+          security import cert.p12 -k $KEYCHAIN -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASS" $KEYCHAIN
+          rm cert.p12
+
+      - name: Package, sign, notarize DMG
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          VERSION="$(date +%Y.%m.%d)-${{ steps.upstream.outputs.short }}"
+          ARGS=(--version "$VERSION")
+          if [ -z "${SKIP_SIGN:-}" ] && [ -n "$NOTARY_PASSWORD" ] && [ "${{ github.event.inputs.notarize }}" != "false" ]; then
+            ARGS+=(--notarize)
+          fi
+          UPBGE_ROOT="$GITHUB_WORKSPACE" ./scripts/package_dmg.sh --plain-dmg "${ARGS[@]}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Create release
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BLENDER_VER=$(grep -m1 BLENDER_VERSION upbge/source/blender/blenkernel/BKE_blender_version.h | awk '{print $3}')
+          TAG="v${VERSION}"
+          NOTES="Unofficial Apple Silicon build of [UPBGE](https://github.com/UPBGE/upbge) at commit [\`${{ steps.upstream.outputs.short }}\`](https://github.com/UPBGE/upbge/commit/${{ steps.upstream.outputs.sha }}) (Blender base: $BLENDER_VER)."
+          [ -n "${PATCHES_SKIPPED:-}" ] && NOTES="$NOTES\n\n⚠️ Patches skipped (no longer apply):${PATCHES_SKIPPED}"
+          gh release create "$TAG" dist/UPBGE-*.dmg \
+            --title "UPBGE macOS arm64 $VERSION" \
+            --notes "$(printf "$NOTES")"

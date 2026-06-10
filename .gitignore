@@ -1,0 +1,10 @@
+upbge/
+build_darwin/
+dist/
+*.log
+build.status
+build.phase
+build.version
+build.pid
+build.launched
+.DS_Store

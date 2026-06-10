@@ -1,0 +1,52 @@
+diff --git a/source/blender/draw/engines/eevee/eevee_shader.cc b/source/blender/draw/engines/eevee/eevee_shader.cc
+index 474199ed578..d3bd447f0e5 100644
+--- a/source/blender/draw/engines/eevee/eevee_shader.cc
++++ b/source/blender/draw/engines/eevee/eevee_shader.cc
+@@ -24,6 +24,8 @@
+ 
+ #include "BLI_assert.h"
+ #include "BLI_math_bits.h"
++#include <array>
++#include <cstdio>
+ #include <fmt/format.h>
+ 
+ namespace blender::eevee {
+@@ -279,6 +281,38 @@ bool ShaderModule::request_specializations(bool block_until_ready,
+ {
+   std::lock_guard lock(mutex_);
+ 
++  /* Bail out if any of the deferred lighting shaders failed to compile.
++   * StaticShader::is_ready() returns true on either success OR failure
++   * (the failure path sets failed_=true while leaving shader_=nullptr),
++   * which means static_shaders_load_async can mark DEFERRED_LIGHTING_SHADERS
++   * as "loaded" and we end up here even though some shaders are null.
++   * Without this guard, GPU_shader_get_default_constant_state(nullptr) below
++   * dereferences a null pointer and crashes the viewport. Observed on macOS
++   * Metal where shader compilation can fail silently. */
++  for (int i : IndexRange(3)) {
++    eShaderType type = eShaderType(DEFERRED_LIGHT_SINGLE + i);
++    if (static_shader_get(type) == nullptr) {
++      /* One-shot diagnostic: write which shader failed so we can debug
++       * the underlying compilation issue. Write only once per type. */
++      static std::array<bool, 3> reported = {false, false, false};
++      if (!reported[i]) {
++        reported[i] = true;
++        const char *info_name = static_shader_create_info_name_get(type);
++        fprintf(stderr,
++                "[UPBGE-PATCH] Deferred light shader failed to compile: %s "
++                "(eShaderType=%d). Viewport will skip render to avoid crash.\n",
++                info_name ? info_name : "?",
++                int(type));
++        FILE *f = fopen("/tmp/upbge_shader_fail.log", "a");
++        if (f) {
++          fprintf(f, "%s (eShaderType=%d)\n", info_name ? info_name : "?", int(type));
++          fclose(f);
++        }
++      }
++      return false;
++    }
++  }
++
+   Vector<AsyncSpecializationHandle> &handles = specialization_handles_.lookup_or_add_cb(
+       {render_buffers_shadow_id,
+        shadow_ray_count,

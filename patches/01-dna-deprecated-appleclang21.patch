@@ -1,0 +1,20 @@
+diff --git a/source/blender/makesdna/DNA_defs.h b/source/blender/makesdna/DNA_defs.h
+index 4218ea40b2d..19005b29613 100644
+--- a/source/blender/makesdna/DNA_defs.h
++++ b/source/blender/makesdna/DNA_defs.h
+@@ -15,8 +15,13 @@
+ /* allow use of deprecated items */
+ #  define DNA_DEPRECATED
+ #else
+-#  if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER)
+-#    define DNA_DEPRECATED [[deprecated]]
++#  if defined(__GNUC__) || defined(__clang__)
++/* Use the GCC-style attribute: it accepts placement after the declarator
++ * (e.g. `int foo[8] DNA_DEPRECATED;`), unlike C++14 `[[deprecated]]` which
++ * recent Apple clang rejects in that position as "applied to types". */
++#    define DNA_DEPRECATED __attribute__((deprecated))
++#  elif defined(_MSC_VER)
++#    define DNA_DEPRECATED __declspec(deprecated)
+ #  else
+ #    define DNA_DEPRECATED
+ #  endif
