@@ -141,10 +141,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BLENDER_VER=$(grep -m1 BLENDER_VERSION upbge/source/blender/blenkernel/BKE_blender_version.h | awk '{print $3}')
+          # Mirror UPBGE's own nomenclature (e.g. "UPBGE 0.53.0 Alpha", Blender base "5.3.0")
+          VER_H=upbge/source/blender/blenkernel/BKE_blender_version.h
+          ver()        { grep -m1 "#define $1 " "$VER_H" | awk '{print $3}'; }
+          UPBGE_VER="0.$(ver UPBGE_VERSION).$(ver UPBGE_VERSION_PATCH)"
+          UPBGE_CYCLE=$(ver UPBGE_VERSION_CYCLE | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+          B=$(ver BLENDER_VERSION)
+          BLENDER_VER="$((B / 100)).$((B % 100)).$(ver BLENDER_VERSION_PATCH)"
           TAG="v${VERSION}"
-          NOTES="Unofficial Apple Silicon build of [UPBGE](https://github.com/UPBGE/upbge) at commit [\`${{ steps.upstream.outputs.short }}\`](https://github.com/UPBGE/upbge/commit/${{ steps.upstream.outputs.sha }}) (Blender base: $BLENDER_VER)."
+          NOTES="Unofficial macOS Apple Silicon (arm64) build of [UPBGE](https://github.com/UPBGE/upbge) **$UPBGE_VER $UPBGE_CYCLE** at commit [\`${{ steps.upstream.outputs.short }}\`](https://github.com/UPBGE/upbge/commit/${{ steps.upstream.outputs.sha }}), embedding Blender $BLENDER_VER. Official releases and version naming: [UPBGE releases](https://github.com/UPBGE/upbge/releases)."
           [ -n "${PATCHES_SKIPPED:-}" ] && NOTES="$NOTES\n\n⚠️ Patches skipped (no longer apply):${PATCHES_SKIPPED}"
           gh release create "$TAG" dist/UPBGE-*.dmg \
-            --title "UPBGE macOS arm64 $VERSION" \
+            --title "UPBGE $UPBGE_VER $UPBGE_CYCLE — macOS arm64 ($VERSION)" \
             --notes "$(printf "$NOTES")"
