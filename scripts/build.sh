@@ -104,6 +104,7 @@ else
     # --no-blender: never touch the source checkout (CI pins a SHA / local tree
     # is managed by the user). Fetches only the precompiled libraries.
     python3 "$SRC/build_files/utils/make_update.py" --no-blender --architecture arm64 >> "$LOG" 2>&1
+    update_rc=$?
     if [[ $update_rc -ne 0 ]]; then
         write_status "FAILED" "make update failed with rc=$update_rc"
         exit $update_rc
