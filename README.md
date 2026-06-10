@@ -6,12 +6,12 @@
 
 ## What you get
 
-Each [Release](../../releases) contains a `UPBGE-<date>-<commit>.dmg` with:
+Each [Release](../../releases) contains a DMG named after [upstream's artifact convention](https://github.com/UPBGE/upbge/releases) — e.g. `upbge-0.53-alpha-macos-arm64-2026-06-10.dmg` — with:
 
 - **Blender.app** — UPBGE editor (Blender + the integrated game engine)
 - **Blenderplayer.app** — standalone game runtime
 
-Builds are native `arm64`, code-signed with a Developer ID, and notarized by Apple — they open without Gatekeeper warnings. Built from UPBGE `master`, which currently tracks the Blender 5.2 series.
+Builds are native `arm64`, code-signed with a Developer ID, and notarized by Apple — they open without Gatekeeper warnings. Built from UPBGE `master`; each release's notes state the UPBGE version, the embedded Blender version, and the exact upstream commit.
 
 ## Not official — what that means
 

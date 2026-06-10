@@ -296,7 +296,7 @@ UPBGE doesn't ship a sign-and-package script in-tree (the official Blender pipel
 ./package_dmg.sh                                # sign-only, fast
 NOTARY_PASSWORD=xxxx-xxxx-xxxx-xxxx ./package_dmg.sh --notarize       # full pipeline (recommended)
 ./package_dmg.sh --source /Applications/        # use already-installed copy instead of build_darwin/bin
-./package_dmg.sh --version 0.5.2-edu            # custom DMG name suffix
+./package_dmg.sh --version 0.53-edu             # custom DMG version label (default derived from source)
 ./package_dmg.sh --dmg-only --notarize          # skip resigning, just rebuild + renotarize the DMG
 ./package_dmg.sh --plain-dmg                    # skip create-dmg's AppleScript layout step entirely
 ```

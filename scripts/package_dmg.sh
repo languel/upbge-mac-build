@@ -1,11 +1,11 @@
 #!/bin/bash
-# UPBGE 0.5.2 — sign + notarize + DMG packaging pipeline.
+# UPBGE — sign + notarize + DMG packaging pipeline.
 #
 # Usage:
 #   ./package_dmg.sh                           # signs from build_darwin/bin, no notarize
 #   ./package_dmg.sh --notarize                # signs + submits to Apple + staples
 #   ./package_dmg.sh --source /Applications    # use already-installed copy
-#   ./package_dmg.sh --version 0.5.2-edu       # custom version label in DMG name
+#   ./package_dmg.sh --version 0.53-edu         # custom version label in DMG name (default: derived from source, e.g. 0.53-alpha-macos-arm64-<date>)
 #   ./package_dmg.sh --dmg-only                # skip staging+signing, just rebuild DMG
 #                                              # (use after a create-dmg AppleScript hiccup)
 #   ./package_dmg.sh --plain-dmg               # skip create-dmg's Finder dance entirely
@@ -41,7 +41,7 @@ set -o pipefail
 # -------- args --------
 SOURCE_DIR=""
 DO_NOTARIZE=0
-VERSION="0.5.2-arm64"
+VERSION=""   # default derived from the source tree below; override with --version
 KEYCHAIN_PROFILE="UPBGE_NOTARY"
 DMG_ONLY=0
 PLAIN_DMG=0
@@ -63,6 +63,18 @@ done
 cd "$(dirname "$0")"
 ROOT="${UPBGE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$ROOT"
+
+# -------- default version: upstream naming, e.g. 0.53-alpha-macos-arm64-2026-06-10
+if [[ -z "$VERSION" ]]; then
+    VER_H="$ROOT/upbge/source/blender/blenkernel/BKE_blender_version.h"
+    if [[ -f "$VER_H" ]]; then
+        ver() { grep -m1 "#define $1 " "$VER_H" | awk '{print $3}'; }
+        VERSION="0.$(ver UPBGE_VERSION)-$(ver UPBGE_VERSION_CYCLE)-macos-arm64-$(date +%Y-%m-%d)"
+    else
+        VERSION="macos-arm64-$(date +%Y-%m-%d)"
+        echo "[warn] $VER_H not found — using generic version label $VERSION"
+    fi
+fi
 
 # -------- locate source apps --------
 if [[ -z "$SOURCE_DIR" ]]; then
@@ -110,6 +122,7 @@ echo "[ok] Team ID: $TEAM_ID"
 DIST="$ROOT/dist"
 STAGE="$DIST/staging"
 DMG="$DIST/upbge-${VERSION}.dmg"
+VOLNAME="UPBGE ${VERSION%%-macos-arm64*}"
 ENTITLEMENTS="$ROOT/upbge/release/darwin/entitlements.plist"
 THUMB_ENTITLEMENTS="$ROOT/upbge/release/darwin/thumbnailer_entitlements.plist"
 BACKGROUND="$ROOT/upbge/release/darwin/background_extended.tif"
@@ -257,7 +270,7 @@ build_plain_dmg() {
     [[ -d "$PLAYER_APP" ]] && cp -R "$PLAYER_APP" "$src/"
     # Drag-target shortcut for /Applications — works without create-dmg's AppleScript magic.
     ln -s /Applications "$src/Applications"
-    hdiutil create -volname "UPBGE 0.5.2" \
+    hdiutil create -volname "$VOLNAME" \
         -srcfolder "$src" \
         -ov -format UDZO \
         "$DMG"
@@ -268,7 +281,7 @@ DMG_OK=0
 if [[ "$PLAIN_DMG" -eq 0 ]] && command -v create-dmg >/dev/null 2>&1; then
     echo "[dmg] creating polished DMG with create-dmg"
     DMG_ARGS=(
-        --volname "UPBGE 0.5.2"
+        --volname "$VOLNAME"
         --window-pos 200 120
         --window-size 720 480
         --icon-size 96
