@@ -1,24 +1,17 @@
-diff --git a/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing_lib.glsl b/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing_lib.glsl
-index 65c2c2c8e11..38c00653630 100644
---- a/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing_lib.glsl
-+++ b/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing_lib.glsl
-@@ -76,13 +76,19 @@ float shadow_pcf_uniform(LightData light,
+diff --git a/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing.bsl.hh b/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing.bsl.hh
+index 47022a66336..2a8588b55e9 100644
+--- a/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing.bsl.hh
++++ b/source/blender/draw/engines/eevee/shaders/eevee_shadow_tracing.bsl.hh
+@@ -73,13 +73,12 @@ float shadow_pcf_uniform([[resource_table]] ShadowRenderData &srd,
    float3 right, up;
    make_orthonormal_basis(L, right, up);
  
 -  const float kernel[9] = {1.0f, 2.0f, 1.0f,
 -                           2.0f, 4.0f, 2.0f,
 -                           1.0f, 2.0f, 1.0f};
-+  /* 3x3 Gaussian-ish kernel:
-+   *   1 2 1
-+   *   2 4 2     sum = 16
-+   *   1 2 1
-+   *
-+   * Weights are computed inline rather than read from a `const float kernel[9] = {...}`
-+   * array literal because the BSL→MSL preprocessor rewrites brace-initialized arrays
-+   * into ARRAY_T(...) ARRAY_V(...) macro calls that fail to expand on Apple Metal,
-+   * causing eevee_deferred_light_{single,double,triple} to fail to compile.
-+   * The weight at (xx, yy) is `(xx==0 ? 2 : 1) * (yy==0 ? 2 : 1)`, giving 1, 2, or 4. */
++  /* 3x3 Gaussian weights (1,2,4; sum 16) computed inline instead of a
++   * brace-initialized array: the BSL->MSL preprocessor mangles array
++   * literals on the Metal backend (see upbge-mac-build patch notes). */
    const float kernel_sum = 16.0f;
  
    float vis_sum = 0.0f;
@@ -26,7 +19,7 @@ index 65c2c2c8e11..38c00653630 100644
    for (int yy = -1; yy <= 1; ++yy) {
      for (int xx = -1; xx <= 1; ++xx) {
        float3 offset = right * (float(xx) * pcf_step) + up * (float(yy) * pcf_step);
-@@ -99,7 +105,8 @@ float shadow_pcf_uniform(LightData light,
+@@ -97,7 +96,8 @@ float shadow_pcf_uniform([[resource_table]] ShadowRenderData &srd,
           * Smoothstep from 0 (fully shadowed) to softness (fully lit). */
          vis = 1.0f - saturate(smoothstep(0.0f, softness, d));
        }
