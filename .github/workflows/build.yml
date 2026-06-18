@@ -54,9 +54,38 @@ jobs:
       - name: Clone UPBGE
         if: steps.skip.outputs.skip != 'true'
         run: |
-          git clone https://github.com/UPBGE/upbge upbge
+          # Clone WITHOUT smudging LFS. UPBGE's GitHub repo periodically exhausts its
+          # monthly Git-LFS bandwidth budget ("This repository exceeded its LFS budget"),
+          # which makes a normal clone abort at checkout. Skip-smudge always succeeds.
+          GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/UPBGE/upbge upbge
           cd upbge
-          git checkout ${{ steps.upstream.outputs.sha }}
+          GIT_LFS_SKIP_SMUDGE=1 git checkout ${{ steps.upstream.outputs.sha }}
+
+          # Materialise LFS assets resiliently. The only UPBGE-unique LFS objects live
+          # under tests/ (game-engine test fixtures) and are not needed to build or
+          # package — exclude them. Everything else (release/datafiles, scripts, brushes,
+          # fonts, startup.blend) is Blender-derived and content-addressed, so Blender's
+          # own LFS server can serve those exact OIDs when UPBGE's budget is exhausted.
+          git config lfs.fetchexclude "tests/**"
+
+          echo "::group::LFS fetch from UPBGE (origin)"
+          git lfs fetch origin "${{ steps.upstream.outputs.sha }}" \
+            || echo "::warning::UPBGE LFS fetch failed (likely exhausted GitHub LFS budget) — falling back to Blender mirror"
+          echo "::endgroup::"
+
+          echo "::group::LFS fetch from Blender mirror (fills any gaps)"
+          git remote add lfs-blender https://projects.blender.org/blender/blender.git || true
+          git lfs fetch lfs-blender || true
+          echo "::endgroup::"
+
+          git lfs checkout
+
+          # Fail clearly if the build-critical startup.blend is still a pointer.
+          if head -c 64 release/datafiles/startup.blend | grep -q "git-lfs"; then
+            echo "::error::startup.blend is still an LFS pointer — neither UPBGE nor the Blender mirror provided it."
+            exit 1
+          fi
+          echo "LFS OK: startup.blend is $(stat -f%z release/datafiles/startup.blend) bytes"
 
       - name: Apply local patches
         if: steps.skip.outputs.skip != 'true'
