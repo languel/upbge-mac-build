@@ -233,6 +233,43 @@ notary_auth_args() {
     fi
 }
 
+# Submit to Apple and wait for a terminal result, tolerant of transient network
+# errors. `notarytool submit --wait` aborts the whole run if the long status poll
+# hits a network blip (e.g. "The Internet connection appears to be offline",
+# NSURLErrorDomain -1009) even though the upload succeeded — so we submit once,
+# capture the submission id, then poll `info` ourselves and only fail on a real
+# terminal Invalid/Rejected verdict.
+notarize_submit_wait() {
+    local file="$1" subid status i
+    # shellcheck disable=SC2046
+    subid=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>/dev/null \
+            | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+    if [[ -z "$subid" ]]; then
+        echo "[notarize] submit failed (no submission id returned)" >&2
+        return 1
+    fi
+    echo "[notarize] submission id: $subid — polling Apple (transient network errors retry)" >&2
+    # ~40 min ceiling; Apple scans usually finish in 1–10 min.
+    for i in $(seq 1 80); do
+        # shellcheck disable=SC2046
+        status=$(xcrun notarytool info "$subid" $(notary_auth_args) --output-format json 2>/dev/null \
+                 | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+        case "$status" in
+            Accepted) echo "[notarize] Accepted" >&2; return 0;;
+            Invalid|Rejected)
+                echo "[notarize] verdict: $status — fetching log" >&2
+                # shellcheck disable=SC2046
+                xcrun notarytool log "$subid" $(notary_auth_args) >&2 || true
+                return 1;;
+            "") echo "[notarize] poll $i: no response (transient) — retrying in 30s" >&2;;
+            *)  echo "[notarize] poll $i: status=$status — waiting" >&2;;
+        esac
+        sleep 30
+    done
+    echo "[notarize] timed out waiting for Apple after retries" >&2
+    return 1
+}
+
 notarize_app() {
     local app="$1"
     # If a notarization ticket is already stapled, skip — re-submitting wastes
@@ -245,8 +282,7 @@ notarize_app() {
     echo "[notarize] zipping $app"
     /usr/bin/ditto -c -k --keepParent "$app" "$zip"
     echo "[notarize] submitting $zip — this typically takes 1–10 minutes"
-    # shellcheck disable=SC2046
-    xcrun notarytool submit "$zip" $(notary_auth_args) --wait
+    notarize_submit_wait "$zip"
     echo "[notarize] stapling ticket to $app"
     xcrun stapler staple "$app"
     rm -f "$zip"
@@ -328,8 +364,7 @@ codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 
 if [[ "$DO_NOTARIZE" -eq 1 ]]; then
     echo "[notarize] DMG"
-    # shellcheck disable=SC2046
-    xcrun notarytool submit "$DMG" $(notary_auth_args) --wait
+    notarize_submit_wait "$DMG"
     xcrun stapler staple "$DMG"
 fi
 
