@@ -179,6 +179,15 @@ jobs:
             echo "BUILD_DATE=$DATE"
           } >> "$GITHUB_ENV"
 
+      - name: Upload DMG as workflow artifact
+        if: steps.skip.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upbge-dmg
+          path: dist/upbge-*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Create release
         if: steps.skip.outputs.skip != 'true'
         env:
@@ -189,6 +198,13 @@ jobs:
           CYCLE_TITLE=$(echo "$UPBGE_CYCLE" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           NOTES="Unofficial macOS Apple Silicon (arm64) build of [UPBGE](https://github.com/UPBGE/upbge) **$UPBGE_VER $CYCLE_TITLE** at commit [\`${{ steps.upstream.outputs.short }}\`](https://github.com/UPBGE/upbge/commit/${{ steps.upstream.outputs.sha }}), embedding Blender $BLENDER_VER. Official releases and version naming: [UPBGE releases](https://github.com/UPBGE/upbge/releases)."
           [ -n "${PATCHES_SKIPPED:-}" ] && NOTES="$NOTES\n\n⚠️ Patches skipped (no longer apply):${PATCHES_SKIPPED}"
+          # A manual re-run on the same commit + day produces the same tag. Replace any
+          # existing release/tag so the freshly built DMG always wins (the old one may be
+          # a known-bad build we're re-publishing). --cleanup-tag frees the tag for re-create.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — deleting and re-creating with the new build."
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
           gh release create "$TAG" dist/upbge-*.dmg \
             --title "UPBGE $UPBGE_VER $CYCLE_TITLE — macOS arm64 ($BUILD_DATE)" \
             --notes "$(printf "$NOTES")"
