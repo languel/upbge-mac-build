@@ -111,6 +111,29 @@ else
     fi
 fi
 
+# -------- Phase 1b: ensure addon submodules are checked out ------------------
+# bge_netlogic (Logic Nodes), bge_bricknodes, etc. live in scripts/addons_core/
+# as git submodules. make_update populates them — but we skip make_update above
+# whenever lib/macos_arm64 is already present (e.g. restored from CI cache), which
+# left those submodules as empty mount-point dirs and shipped builds WITHOUT the
+# addons. Populate them explicitly here so warm-cache builds still include them.
+# Idempotent: an already-populated submodule is left alone.
+mark_phase "1b_addon_submodules"
+addon_subs=$(cd "$SRC" && git config --file .gitmodules --get-regexp path 2>/dev/null \
+    | awk '$2 ~ /scripts\/addons_core\// {print $2}')
+for sub in $addon_subs; do
+    if [[ -n "$(ls -A "$SRC/$sub" 2>/dev/null)" ]]; then
+        echo "addon submodule ok: $sub" >> "$LOG"
+        continue
+    fi
+    echo "checking out addon submodule: $sub" >> "$LOG"
+    if ! ( cd "$SRC" && GIT_LFS_SKIP_SMUDGE=1 git submodule update --init "$sub" \
+            && git -C "$sub" lfs pull ) >> "$LOG" 2>&1; then
+        echo "::warning::failed to check out addon submodule $sub — build will ship without it"
+        echo "WARNING: failed to check out addon submodule $sub" >> "$LOG"
+    fi
+done
+
 # -------- Phase 2: configure & build -----------------------------------------
 mark_phase "2_build"
 
