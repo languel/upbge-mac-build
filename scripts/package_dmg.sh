@@ -240,18 +240,22 @@ notary_auth_args() {
 # capture the submission id, then poll `info` ourselves and only fail on a real
 # terminal Invalid/Rejected verdict.
 notarize_submit_wait() {
-    local file="$1" subid status i submit_rc submit_out submit_msg retry_delay
+    local file="$1" subid status i submit_rc submit_out submit_msg submit_err retry_delay
     local max_retry_delay=30
     for i in $(seq 1 5); do
+        submit_err=$(mktemp "${TMPDIR:-/tmp}/upbge-notary-submit.XXXXXX")
         # shellcheck disable=SC2046
-        submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>&1)
+        submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>"$submit_err")
         submit_rc=$?
+        submit_msg=$(cat "$submit_err" 2>/dev/null || true)
+        rm -f "$submit_err"
         subid=$(printf '%s' "$submit_out" \
             | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
         if [[ -n "$subid" ]]; then
             break
         fi
-        submit_msg=$(printf '%s' "$submit_out" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g')
+        [[ -n "$submit_msg" ]] || submit_msg="$submit_out"
+        submit_msg=$(printf '%s' "$submit_msg" | tr '\n' ' ' | tr -s '[:space:]' ' ')
         if [[ -n "${NOTARY_PASSWORD:-}" ]]; then
             submit_msg=$(SUBMIT_MSG="$submit_msg" NOTARY_PASSWORD="$NOTARY_PASSWORD" python3 - <<'PY'
 import os
