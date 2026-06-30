@@ -241,6 +241,7 @@ notary_auth_args() {
 # terminal Invalid/Rejected verdict.
 notarize_submit_wait() {
     local file="$1" subid status i submit_rc submit_out submit_msg retry_delay
+    local max_retry_delay=30
     for i in $(seq 1 5); do
         # shellcheck disable=SC2046
         submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>&1)
@@ -263,8 +264,12 @@ PY
             echo "[notarize] giving up after repeated submit failures" >&2
             return 1
         fi
-        retry_delay=$((5 * (2 ** (i - 1))))
-        [[ "$retry_delay" -gt 30 ]] && retry_delay=30
+        case "$i" in
+            1) retry_delay=5 ;;
+            2) retry_delay=10 ;;
+            3) retry_delay=20 ;;
+            *) retry_delay=$max_retry_delay ;;
+        esac
         echo "[notarize] retrying submit in ${retry_delay}s" >&2
         sleep "$retry_delay"
     done
