@@ -240,14 +240,28 @@ notary_auth_args() {
 # capture the submission id, then poll `info` ourselves and only fail on a real
 # terminal Invalid/Rejected verdict.
 notarize_submit_wait() {
-    local file="$1" subid status i
-    # shellcheck disable=SC2046
-    subid=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>/dev/null \
+    local file="$1" subid status i submit_rc submit_out submit_msg
+    for i in $(seq 1 5); do
+        # shellcheck disable=SC2046
+        submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>&1)
+        submit_rc=$?
+        subid=$(printf '%s' "$submit_out" \
             | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-    if [[ -z "$subid" ]]; then
-        echo "[notarize] submit failed (no submission id returned)" >&2
-        return 1
-    fi
+        if [[ -n "$subid" ]]; then
+            break
+        fi
+        submit_msg=$(printf '%s' "$submit_out" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+        if [[ -n "${NOTARY_PASSWORD:-}" ]]; then
+            submit_msg="${submit_msg//$NOTARY_PASSWORD/[redacted]}"
+        fi
+        echo "[notarize] submit attempt $i failed (rc=$submit_rc): ${submit_msg:-no output}" >&2
+        if [[ "$i" -eq 5 ]]; then
+            echo "[notarize] giving up after repeated submit failures" >&2
+            return 1
+        fi
+        echo "[notarize] retrying submit in 30s" >&2
+        sleep 30
+    done
     echo "[notarize] submission id: $subid — polling Apple (transient network errors retry)" >&2
     # ~40 min ceiling; Apple scans usually finish in 1–10 min.
     for i in $(seq 1 80); do
