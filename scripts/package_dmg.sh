@@ -240,7 +240,7 @@ notary_auth_args() {
 # capture the submission id, then poll `info` ourselves and only fail on a real
 # terminal Invalid/Rejected verdict.
 notarize_submit_wait() {
-    local file="$1" subid status i submit_rc submit_out submit_msg
+    local file="$1" subid status i submit_rc submit_out submit_msg retry_delay
     for i in $(seq 1 5); do
         # shellcheck disable=SC2046
         submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>&1)
@@ -252,15 +252,21 @@ notarize_submit_wait() {
         fi
         submit_msg=$(printf '%s' "$submit_out" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
         if [[ -n "${NOTARY_PASSWORD:-}" ]]; then
-            submit_msg="${submit_msg//$NOTARY_PASSWORD/[redacted]}"
+            submit_msg=$(SUBMIT_MSG="$submit_msg" NOTARY_PASSWORD="$NOTARY_PASSWORD" python3 - <<'PY'
+import os
+print(os.environ["SUBMIT_MSG"].replace(os.environ["NOTARY_PASSWORD"], "[redacted]"))
+PY
+)
         fi
         echo "[notarize] submit attempt $i failed (rc=$submit_rc): ${submit_msg:-no output}" >&2
         if [[ "$i" -eq 5 ]]; then
             echo "[notarize] giving up after repeated submit failures" >&2
             return 1
         fi
-        echo "[notarize] retrying submit in 30s" >&2
-        sleep 30
+        retry_delay=$((5 * (2 ** (i - 1))))
+        [[ "$retry_delay" -gt 30 ]] && retry_delay=30
+        echo "[notarize] retrying submit in ${retry_delay}s" >&2
+        sleep "$retry_delay"
     done
     echo "[notarize] submission id: $subid — polling Apple (transient network errors retry)" >&2
     # ~40 min ceiling; Apple scans usually finish in 1–10 min.
