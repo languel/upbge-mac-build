@@ -251,7 +251,7 @@ notarize_submit_wait() {
         if [[ -n "$subid" ]]; then
             break
         fi
-        submit_msg=$(printf '%s' "$submit_out" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+        submit_msg=$(printf '%s' "$submit_out" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g')
         if [[ -n "${NOTARY_PASSWORD:-}" ]]; then
             submit_msg=$(SUBMIT_MSG="$submit_msg" NOTARY_PASSWORD="$NOTARY_PASSWORD" python3 - <<'PY'
 import os
@@ -268,7 +268,7 @@ PY
             1) retry_delay=5 ;;
             2) retry_delay=10 ;;
             3) retry_delay=20 ;;
-            *) retry_delay=$max_retry_delay ;;
+            4) retry_delay=$max_retry_delay ;;
         esac
         echo "[notarize] retrying submit in ${retry_delay}s" >&2
         sleep "$retry_delay"
