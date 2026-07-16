@@ -208,3 +208,66 @@ jobs:
           gh release create "$TAG" dist/upbge-*.dmg \
             --title "UPBGE $UPBGE_VER $CYCLE_TITLE — macOS arm64 ($BUILD_DATE)" \
             --notes "$(printf "$NOTES")"
+
+      - name: Prune old releases
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Retention: keep the 3 most recent releases, plus one per calendar
+          # month for anything older than that (the newest release in each
+          # month). Bucketed by publishedAt, NOT createdAt — createdAt tracks
+          # the underlying git tag's commit date (can be stale/reused across
+          # releases), publishedAt is when the release actually went live.
+          #
+          # Written for bash 3.2 (macOS ships no newer bash; GH's macOS
+          # runners default the `run:` shell to it too) — no mapfile, no
+          # associative arrays, both bash-4+ only.
+          echo "Retention: keep newest 3 releases, plus 1 per calendar month beyond that."
+
+          releases=()
+          while IFS= read -r line; do
+            releases+=("$line")
+          done < <(gh release list --limit 200 --json tagName,publishedAt \
+            --jq 'sort_by(.publishedAt) | reverse | .[] | "\(.tagName)|\(.publishedAt[0:7])"')
+          total=${#releases[@]}
+          echo "Found $total releases."
+
+          seen_months="|"
+          keep_tags="|"
+          i=0
+          for entry in "${releases[@]}"; do
+            tag="${entry%%|*}"
+            month="${entry##*|}"
+            if [ "$i" -lt 3 ]; then
+              keep_tags="${keep_tags}${tag}|"
+              seen_months="${seen_months}${month}|"
+            else
+              case "$seen_months" in
+                *"|${month}|"*) : ;;  # this month already has a kept release
+                *)
+                  seen_months="${seen_months}${month}|"
+                  keep_tags="${keep_tags}${tag}|"
+                  ;;
+              esac
+            fi
+            i=$((i+1))
+          done
+
+          echo "Keeping releases:"
+          for entry in "${releases[@]}"; do
+            tag="${entry%%|*}"
+            case "$keep_tags" in
+              *"|${tag}|"*) echo "  KEEP   $tag" ;;
+            esac
+          done
+
+          for entry in "${releases[@]}"; do
+            tag="${entry%%|*}"
+            case "$keep_tags" in
+              *"|${tag}|"*) continue ;;
+            esac
+            echo "Deleting old release: $tag"
+            gh release delete "$tag" --yes --cleanup-tag \
+              || echo "::warning::failed to delete release $tag"
+          done
