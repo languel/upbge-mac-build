@@ -245,12 +245,22 @@ notarize_submit_wait() {
     for i in $(seq 1 5); do
         submit_err=$(mktemp "${TMPDIR:-/tmp}/upbge-notary-submit.XXXXXX")
         # shellcheck disable=SC2046
-        submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>"$submit_err")
-        submit_rc=$?
+        # NOTE: this must be the condition of an `if` (not a bare assignment).
+        # Under this script's `set -e` + `set -o pipefail`, a bare failing
+        # command inside a plain assignment (`x=$(cmd)`) trips -e immediately —
+        # before submit_rc=$? or any of the retry logic below ever runs, so the
+        # whole job dies silently on exactly the transient failure we're trying
+        # to tolerate. Commands in an `if` condition are exempt from -e, and
+        # $? right after still reflects the real exit code.
+        if submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>"$submit_err"); then
+            submit_rc=0
+        else
+            submit_rc=$?
+        fi
         submit_msg=$(cat "$submit_err" 2>/dev/null || true)
         rm -f "$submit_err"
         subid=$(printf '%s' "$submit_out" \
-            | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+            | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null) || true
         if [[ -n "$subid" ]]; then
             break
         fi
@@ -281,8 +291,11 @@ PY
     # ~40 min ceiling; Apple scans usually finish in 1–10 min.
     for i in $(seq 1 80); do
         # shellcheck disable=SC2046
+        # Same set -e/pipefail trap as the submit loop above — `|| true` keeps
+        # a transient `notarytool info` failure from killing the whole script;
+        # it just falls through to the "" (retry) case below instead.
         status=$(xcrun notarytool info "$subid" $(notary_auth_args) --output-format json 2>/dev/null \
-                 | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+                 | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null) || true
         case "$status" in
             Accepted) echo "[notarize] Accepted" >&2; return 0;;
             Invalid|Rejected)
