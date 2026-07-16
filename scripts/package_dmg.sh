@@ -153,12 +153,37 @@ else
 fi
 
 # -------- sign helpers --------
+# codesign --timestamp contacts Apple's timestamp authority for every single
+# call. That server is occasionally unreachable ("The timestamp service is
+# not available"), which otherwise aborts the whole packaging run under this
+# script's set -e — the exact same class of transient-Apple-network failure
+# already handled for notarization above. Retry a few times before giving up.
+codesign_retry() {
+    local i rc=0
+    for i in 1 2 3 4 5; do
+        # NOTE: `codesign "$@" && return 0`, not `if codesign "$@"; then
+        # return 0; fi` — with the latter, `rc=$?` on the next line reads the
+        # *if statement's* own exit status (0, since a false condition with
+        # no else is "successful" by definition), not codesign's real exit
+        # code. That silently turned every failure into rc=0, so this
+        # function always looked like it succeeded even when codesign never
+        # did. Verified live: the if/fi form let a script continue past a
+        # real, permanent codesign failure; this form correctly propagates it.
+        codesign "$@" && return 0
+        rc=$?
+        echo "[sign] codesign failed (rc=$rc, attempt $i/5) — retrying in 10s: $*" >&2
+        sleep 10
+    done
+    echo "[sign] codesign failed after 5 attempts: $*" >&2
+    return "$rc"
+}
+
 sign_one() {
     local target="$1"
     local entitle="${2:-}"
     local extra=()
     [[ -n "$entitle" ]] && extra+=(--entitlements "$entitle")
-    codesign --force --timestamp --options runtime \
+    codesign_retry --force --timestamp --options runtime \
         --sign "$IDENTITY" \
         "${extra[@]}" \
         "$target"
@@ -170,10 +195,14 @@ sign_one() {
 sign_inside() {
     local app="$1"
     echo "[sign-inner] $app"
-    # innermost first: .dylib, .so, then frameworks
-    find "$app" -type f \( -name "*.dylib" -o -name "*.so" \) \
-        -exec codesign --force --timestamp --options runtime \
-                       --sign "$IDENTITY" {} +
+    # innermost first: .dylib, .so — one codesign_retry call per file (not a
+    # batched `-exec ... +`) so a transient timestamp-server failure only
+    # retries the one file that hit it, not the whole batch.
+    find "$app" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 \
+        | while IFS= read -r -d '' f; do
+            codesign_retry --force --timestamp --options runtime \
+                --sign "$IDENTITY" "$f"
+        done
     # frameworks (signed as bundles)
     find "$app" -type d -name "*.framework" | while read -r fw; do
         sign_one "$fw"
@@ -181,7 +210,7 @@ sign_inside() {
     # any nested executables in MacOS dirs other than the main one
     find "$app/Contents/Resources" -type f -perm +111 2>/dev/null | while read -r exe; do
         if file "$exe" | grep -q "Mach-O"; then
-            codesign --force --timestamp --options runtime \
+            codesign_retry --force --timestamp --options runtime \
                      --sign "$IDENTITY" "$exe" || true
         fi
     done
@@ -402,7 +431,7 @@ fi
 
 # -------- sign + notarize the DMG --------
 echo "[sign] $DMG"
-codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+codesign_retry --force --timestamp --sign "$IDENTITY" "$DMG"
 
 if [[ "$DO_NOTARIZE" -eq 1 ]]; then
     echo "[notarize] DMG"
