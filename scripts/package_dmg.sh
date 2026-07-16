@@ -240,14 +240,43 @@ notary_auth_args() {
 # capture the submission id, then poll `info` ourselves and only fail on a real
 # terminal Invalid/Rejected verdict.
 notarize_submit_wait() {
-    local file="$1" subid status i
-    # shellcheck disable=SC2046
-    subid=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>/dev/null \
+    local file="$1" subid status i submit_rc submit_out submit_msg submit_err retry_delay
+    local max_retry_delay=30
+    for i in $(seq 1 5); do
+        submit_err=$(mktemp "${TMPDIR:-/tmp}/upbge-notary-submit.XXXXXX")
+        # shellcheck disable=SC2046
+        submit_out=$(xcrun notarytool submit "$file" $(notary_auth_args) --output-format json 2>"$submit_err")
+        submit_rc=$?
+        submit_msg=$(cat "$submit_err" 2>/dev/null || true)
+        rm -f "$submit_err"
+        subid=$(printf '%s' "$submit_out" \
             | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-    if [[ -z "$subid" ]]; then
-        echo "[notarize] submit failed (no submission id returned)" >&2
-        return 1
-    fi
+        if [[ -n "$subid" ]]; then
+            break
+        fi
+        [[ -n "$submit_msg" ]] || submit_msg="$submit_out"
+        submit_msg=$(printf '%s' "$submit_msg" | tr '\n' ' ' | tr -s '[:space:]' ' ')
+        if [[ -n "${NOTARY_PASSWORD:-}" ]]; then
+            submit_msg=$(SUBMIT_MSG="$submit_msg" NOTARY_PASSWORD="$NOTARY_PASSWORD" python3 - <<'PY'
+import os
+print(os.environ["SUBMIT_MSG"].replace(os.environ["NOTARY_PASSWORD"], "[redacted]"))
+PY
+)
+        fi
+        echo "[notarize] submit attempt $i failed (rc=$submit_rc): ${submit_msg:-no output}" >&2
+        if [[ "$i" -eq 5 ]]; then
+            echo "[notarize] giving up after repeated submit failures" >&2
+            return 1
+        fi
+        case "$i" in
+            1) retry_delay=5 ;;
+            2) retry_delay=10 ;;
+            3) retry_delay=20 ;;
+            4) retry_delay=$max_retry_delay ;;
+        esac
+        echo "[notarize] retrying submit in ${retry_delay}s" >&2
+        sleep "$retry_delay"
+    done
     echo "[notarize] submission id: $subid — polling Apple (transient network errors retry)" >&2
     # ~40 min ceiling; Apple scans usually finish in 1–10 min.
     for i in $(seq 1 80); do
